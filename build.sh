@@ -43,18 +43,34 @@ BUILD_DATE=$(date "+%Y-%m-%d")
 /usr/libexec/PlistBuddy -c "Add :BuildDate string $BUILD_DATE" "$CONTENTS_DIR/Info.plist"
 
 
-# Compile
-echo "Compiling Swift sources..."
-swiftc "$SRC_DIR"/*.swift -o "$MACOS_DIR/$APP_NAME" -target arm64-apple-macosx11.0 -framework AppKit
+# Compile Universal Binary
+echo "Compiling for arm64..."
+swiftc "$SRC_DIR"/*.swift -o "$BUILD_DIR/$APP_NAME-arm64" -target arm64-apple-macosx11.0 -framework AppKit
+STATUS_ARM=$?
 
-# Check if build succeeded
-if [ $? -eq 0 ]; then
-    echo "Build successful: $APP_BUNDLE"
+echo "Compiling for x86_64..."
+swiftc "$SRC_DIR"/*.swift -o "$BUILD_DIR/$APP_NAME-x86_64" -target x86_64-apple-macosx11.0 -framework AppKit
+STATUS_X86=$?
+
+if [ $STATUS_ARM -eq 0 ] && [ $STATUS_X86 -eq 0 ]; then
+    echo "Creating proprietary Universal Binary..."
+    lipo -create -output "$MACOS_DIR/$APP_NAME" "$BUILD_DIR/$APP_NAME-arm64" "$BUILD_DIR/$APP_NAME-x86_64"
     
-    # Ad-hoc sign to run locally
-    codesign --force --deep --sign - "$APP_BUNDLE"
-    echo "Signed $APP_BUNDLE"
+    # Check if lipo succeeded
+    if [ $? -eq 0 ]; then
+        echo "Build successful: $APP_BUNDLE (Universal)"
+        
+        # Cleanup intermediate binaries
+        rm "$BUILD_DIR/$APP_NAME-arm64" "$BUILD_DIR/$APP_NAME-x86_64"
+        
+        # Ad-hoc sign to run locally
+        codesign --force --deep --sign - "$APP_BUNDLE"
+        echo "Signed $APP_BUNDLE"
+    else
+        echo "Lipo failed"
+        exit 1
+    fi
 else
-    echo "Build failed"
+    echo "Compilation failed"
     exit 1
 fi
